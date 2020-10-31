@@ -13,7 +13,7 @@ import groovy.json.JsonOutput
  *
  */
 metadata {
-	definition (name: "Aeon Key Fob", namespace: "smartthings", author: "SmartThings", runLocally: true, minHubCoreVersion: '000.017.0012', executeCommandsLocally: false, ocfDeviceType: "x.com.st.d.remotecontroller") {
+	definition (name: "Aeon Key Fob", namespace: "smartthings", author: "SmartThings", runLocally: true, minHubCoreVersion: '000.017.0012', executeCommandsLocally: false, ocfDeviceType: "x.com.st.d.remotecontroller", mnmn: "SmartThings", vid: "generic-4-button-alt", mcdSync: true) {
 		capability "Actuator"
 		capability "Button"
 		capability "Holdable Button"
@@ -22,9 +22,8 @@ metadata {
 		capability "Battery"
 		capability "Health Check"
 
-		fingerprint deviceId: "0x0101", inClusters: "0x86,0x72,0x70,0x80,0x84,0x85"
-		fingerprint mfr: "0086", prod: "0101", model: "0058", deviceJoinName: "Aeotec Key Fob"
-		fingerprint mfr: "0086", prod: "0001", model: "0026", deviceJoinName: "Aeotec Panic Button"
+		fingerprint deviceId: "0x0101", inClusters: "0x86,0x72,0x70,0x80,0x84,0x85", deviceJoinName: "Aeon Remote Control"
+		fingerprint mfr: "0086", prod: "0001", model: "0026", deviceJoinName: "Aeotec Button", mnmn: "SmartThings", vid: "generic-button-2" //Aeotec Panic Button
 	}
 
 	simulator {
@@ -170,7 +169,7 @@ def installed() {
 	initialize()
 	Integer buttons = (device.currentState("numberOfButtons").value).toBigInteger()
 
-	if (buttons > 1) {
+	if (buttons > 1 && !childDevices) { // Clicking "Update" from the Graph IDE calls installed(), so protect against trying to recreate children.
 		createChildDevices()
 	}
 }

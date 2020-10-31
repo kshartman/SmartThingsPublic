@@ -19,10 +19,9 @@ metadata {
 		capability "Battery"
 		capability "Health Check"
 
-		attribute "alarmState", "string"
-
-		fingerprint mfr:"0138", prod:"0001", model:"0002", deviceJoinName: "First Alert Smoke Detector and Carbon Monoxide Alarm (ZCOMBO)"
-		fingerprint mfr:"0138", prod:"0001", model:"0003", deviceJoinName: "First Alert Smoke Detector and Carbon Monoxide Alarm (ZCOMBO)"
+		fingerprint mfr:"0138", prod:"0001", model:"0002", deviceJoinName: "First Alert Smoke Detector" //First Alert Smoke Detector and Carbon Monoxide Alarm (ZCOMBO)
+		fingerprint mfr:"0138", prod:"0001", model:"0003", deviceJoinName: "First Alert Smoke Detector" //First Alert Smoke Detector and Carbon Monoxide Alarm (ZCOMBO)
+		fingerprint mfr:"0154", prod:"0004", model:"0003", deviceJoinName: "POPP Carbon Monoxide Sensor", mnmn: "SmartThings", vid: "generic-carbon-monoxide-3" //POPP Co Detector
 	}
 
 	simulator {
@@ -37,19 +36,23 @@ metadata {
 
 	tiles (scale: 2){
 		multiAttributeTile(name:"smoke", type: "lighting", width: 6, height: 4){
-			tileAttribute ("device.alarmState", key: "PRIMARY_CONTROL") {
+			tileAttribute ("device.smoke", key: "PRIMARY_CONTROL") {
 				attributeState("clear", label:"clear", icon:"st.alarm.smoke.clear", backgroundColor:"#ffffff")
-				attributeState("smoke", label:"SMOKE", icon:"st.alarm.smoke.smoke", backgroundColor:"#e86d13")
-				attributeState("carbonMonoxide", label:"MONOXIDE", icon:"st.alarm.carbon-monoxide.carbon-monoxide", backgroundColor:"#e86d13")
+				attributeState("detected", label:"SMOKE", icon:"st.alarm.smoke.smoke", backgroundColor:"#e86d13")
 				attributeState("tested", label:"TEST", icon:"st.alarm.smoke.test", backgroundColor:"#e86d13")
 			}
+		}
+		standardTile("co", "device.carbonMonoxide", width:6, height:4, inactiveLabel: false, decoration: "flat") {
+			state("clear", label:"clear", icon:"st.alarm.smoke.clear", backgroundColor:"#ffffff")
+			state("detected", label:"SMOKE", icon:"st.alarm.smoke.smoke", backgroundColor:"#e86d13")
+			state("tested", label:"TEST", icon:"st.alarm.smoke.test", backgroundColor:"#e86d13")
 		}
 		valueTile("battery", "device.battery", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
 			state "battery", label:'${currentValue}% battery', unit:""
 		}
 
 		main "smoke"
-		details(["smoke", "battery"])
+		details(["smoke", "co", "battery"])
 	}
 }
 
@@ -60,14 +63,6 @@ def installed() {
 	def cmds = []
 	createSmokeOrCOEvents("allClear", cmds) // allClear to set inital states for smoke and CO
 	cmds.each { cmd -> sendEvent(cmd) }
-
-	// NOTE: 28.11 hub firmware only associates groupID 1 if the device is Z-Wave Plus. As a workaround, we are going to
-	// associate with group 1 at installed() to circumvent the issue introduced by 28.11
-	// Once the issue in 28.11 is resolved, this change will then need to be removed, but associating twice is not
-	// harmful
-	def hubCmds = [new physicalgraph.device.HubAction(zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:[zwaveHubNodeId]).format())]
-	sendHubCommand(hubCmds)
-	state.setAssociation = true
 }
 
 def updated() {
@@ -84,20 +79,6 @@ def parse(String description) {
 		if (cmd) {
 			zwaveEvent(cmd, results)
 		}
-
-		if (!state.setAssociation)
-		{
-			// This change is to fix the issue introduced in 28.11 where association was not getting set at inclusion
-			// time.
-			//
-			// This change will set the association to group id 1 only once, even for the devices that were added
-			// prior to the 28.11 hub firmware release. The association is set here because not all the device will
-			// support wake up command class, so we are going to set the association once we hear something from the
-			// device which is our clue that the device is awake to receive the message.
-			results << response(zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:[zwaveHubNodeId]))
-			state.setAssociation = true
-		}
-
 	}
 	log.debug "'$description' parsed to ${results.inspect()}"
 	return results
@@ -143,8 +124,7 @@ def createSmokeOrCOEvents(name, results) {
 			name = "clear"
 			break
 	}
-	// This composite event is used for updating the tile
-	results << createEvent(name: "alarmState", value: name, descriptionText: text)
+	results
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.alarmv2.AlarmReport cmd, results) {
@@ -211,13 +191,16 @@ def zwaveEvent(physicalgraph.zwave.commands.sensoralarmv1.SensorAlarmReport cmd,
 def zwaveEvent(physicalgraph.zwave.commands.wakeupv1.WakeUpNotification cmd, results) {
 	results << createEvent(descriptionText: "$device.displayName woke up", isStateChange: false)
 	if (!state.lastbatt || (now() - state.lastbatt) >= 56*60*60*1000) {
-		results << response([
+		results << response(delayBetween([
+				zwave.notificationV3.notificationGet(notificationType: 0x01).format(),
 				zwave.batteryV1.batteryGet().format(),
-				"delay 2000",
 				zwave.wakeUpV1.wakeUpNoMoreInformation().format()
-			])
+		], 2000))
 	} else {
-		results << response(zwave.wakeUpV1.wakeUpNoMoreInformation())
+		results << response(delayBetween([
+				zwave.notificationV3.notificationGet(notificationType: 0x01).format(),
+				zwave.wakeUpV1.wakeUpNoMoreInformation().format()
+		], 2000))
 	}
 }
 
